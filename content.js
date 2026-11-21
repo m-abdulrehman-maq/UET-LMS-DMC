@@ -1,32 +1,14 @@
 function main() {
-    // check if lms is logged in
-    if (window.location.href.includes("web?#id="))
-        return;
-
-    // check if the current page is the LMS DMC page
-    if (!window.location.href.includes("view_type=form&model=obe.grade.book&menu_id=572")) {
-        return;
-    }
+    if (new URLSearchParams(location.hash.replace(/^#\??/, '')).get('model') !== 'obe.grade.book') return;
 
 
     try {
-        // Select the table parent container
-        var select = '/html/body/div[2]/table/tbody/tr/td[2]/div/div/div/div/div/div[2]/div/div[4]/div/div/div/div/table[5]/tbody/tr/td/div/div';
-        const element = document.evaluate(select, document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue;
-        // If the element is not loaded, wait for 2 seconds and try again
-        if (!element) {
-            setTimeout(main, 2000);
-            return;
-        }
-
-        // Select the table
-        var selector = `#${element.id} > div > div > table`
-        var table = document.querySelector(selector);
-        // If the table is not loaded, wait for 2 seconds and try again
-        if (!table) {
-            setTimeout(main, 2000);
-            return;
-        }
+        // Find the course table by its heading instead of a brittle absolute XPath.
+        var table = [...document.querySelectorAll('table')].find(t =>
+            !t.closest('.oe_form_invisible') && t.getClientRects().length &&
+            [...t.querySelectorAll('th')].some(h => h.closest('table') === t && h.textContent.trim() === 'Semester name'));
+        if (!table || table.dataset.uetEnhanced || table.rows.length <= 3) return;
+        table.dataset.uetEnhanced = 'true';
 
         // If the table has rows
         if (table) {
@@ -63,7 +45,7 @@ function main() {
                     var instructor = rows[i].cells[2].textContent;
                     var creditHour = rows[i].cells[3].textContent;
                     var gradePoint = rows[i].cells[4].textContent;
-                    var grade = rows[i].cells[5].textContent;
+                    var grade = rows[i].cells[5].textContent.trim().toUpperCase();
                     var status = rows[i].cells[6].textContent;
                     var courseObj = {
                         "courseCode": courseCode,
@@ -87,7 +69,7 @@ function main() {
                     var instructor = rows[i].cells[2].textContent;
                     var creditHour = rows[i].cells[3].textContent;
                     var gradePoint = rows[i].cells[4].textContent;
-                    var grade = rows[i].cells[5].textContent;
+                    var grade = rows[i].cells[5].textContent.trim().toUpperCase();
                     var status = rows[i].cells[6].textContent;
                     var courseObj = {
                         "courseCode": courseCode,
@@ -130,7 +112,7 @@ function main() {
 
                             // If the same course appears again in a later semester
                             if (nextCourse.courseCode === currentCourseCode &&
-                                nextCourse.courseTitle === currentCourseTitle) {
+                                nextCourse.courseTitle === currentCourseTitle && !["I", "IP", "W", "P", "S", "U", ""].includes(nextCourse.grade)) {
 
                                 // Set credit hour and grade points to 0 in the previous semester since it should be ignored
                                 currentCourse.creditHour = "0.00";
@@ -152,6 +134,7 @@ function main() {
             semestersData.forEach((object) => {
                 // row for the GPA
                 var row = document.createElement("tr");
+                row.dataset.uetSummary = "true";
                 row.style.backgroundColor = "#ffffff";
                 row.style.fontWeight = "bold";
 
@@ -171,7 +154,7 @@ function main() {
                 var cell4 = document.createElement("td");
 
                 // Exclude the courses with grade "I" and "IP" from the calculation
-                var ch = object.courses.reduce((a, b) => b.grade !== "I" && b.grade !== "IP" ? a + parseFloat(b.creditHour) : a, 0);
+                var ch = object.courses.reduce((a, b) => !["I", "IP", "W", "P", "S", "U", ""].includes(b.grade) ? a + parseFloat(b.creditHour) : a, 0);
 
                 cell4.textContent = ch.toFixed(1);
                 row.appendChild(cell4);
@@ -180,13 +163,13 @@ function main() {
                 var cell5 = document.createElement("td");
 
                 // Exclude the courses with grade "I" and "IP" from the calculation
-                var gp = object.courses.reduce((a, b) => b.grade !== "I" && b.grade !== "IP" ? a + parseFloat(b.gradePoint) : a, 0);
+                var gp = object.courses.reduce((a, b) => !["I", "IP", "W", "P", "S", "U", ""].includes(b.grade) ? a + parseFloat(b.gradePoint) : a, 0);
                 cell5.textContent = gp.toFixed(2);
                 row.appendChild(cell5);
 
                 // Add the GPA row to the table of the current semester
                 var cell6 = document.createElement("td");
-                cell6.textContent = "GPA: " + (gp / ch).toFixed(3);
+                cell6.textContent = "GPA: " + (ch > 0 ? (gp / ch).toFixed(3) : "N/A");
                 cell6.style.width = "80px";
                 row.appendChild(cell6);
 
@@ -194,13 +177,13 @@ function main() {
                 if (count > 1) {
                     var cell7 = document.createElement("td");
                     // calculate the Credit Points till the current semester excluding the courses with grade "I" and "IP"                    
-                    var totalcpa = semestersData.slice(0, count).reduce((a, b) => a + parseFloat(b.courses.reduce((a, b) => b.grade !== "I" && b.grade !== "IP" ? a + parseFloat(b.gradePoint) : a, 0)), 0);
+                    var totalcpa = semestersData.slice(0, count).reduce((a, b) => a + parseFloat(b.courses.reduce((a, b) => !["I", "IP", "W", "P", "S", "U", ""].includes(b.grade) ? a + parseFloat(b.gradePoint) : a, 0)), 0);
 
                     // calculate the Credit Hours till the current semester excluding the courses with grade "I" and "IP"
-                    var totalch = semestersData.slice(0, count).reduce((a, b) => a + parseFloat(b.courses.reduce((a, b) => b.grade !== "I" && b.grade !== "IP" ? a + parseFloat(b.creditHour) : a, 0)), 0);
+                    var totalch = semestersData.slice(0, count).reduce((a, b) => a + parseFloat(b.courses.reduce((a, b) => !["I", "IP", "W", "P", "S", "U", ""].includes(b.grade) ? a + parseFloat(b.creditHour) : a, 0)), 0);
 
                     // Add the CGPA to the table of the current semester
-                    cell7.textContent = "CGPA: " + (totalcpa / totalch).toFixed(3);
+                    cell7.textContent = "CGPA: " + (totalch > 0 ? (totalcpa / totalch).toFixed(3) : "N/A");
                     cell7.style.width = "90px";
                     row.appendChild(cell7);
                     count++;
@@ -216,14 +199,15 @@ function main() {
 
             // row for the CGPA
             var row = table.insertRow();
+            row.dataset.uetSummary = "true";
             row.style.backgroundColor = "#ffffff";
             row.style.fontWeight = "bold";
 
             // calculate the CGPA excluding the courses with grade "I" and "IP"
-            var gp = semestersData.reduce((a, b) => a + parseFloat(b.courses.reduce((a, b) => b.grade !== "I" && b.grade !== "IP" ? a + parseFloat(b.gradePoint) : a, 0)), 0);
-            var ch = semestersData.reduce((a, b) => a + parseFloat(b.courses.reduce((a, b) => b.grade !== "I" && b.grade !== "IP" ? a + parseFloat(b.creditHour) : a, 0)), 0);
+            var gp = semestersData.reduce((a, b) => a + parseFloat(b.courses.reduce((a, b) => !["I", "IP", "W", "P", "S", "U", ""].includes(b.grade) ? a + parseFloat(b.gradePoint) : a, 0)), 0);
+            var ch = semestersData.reduce((a, b) => a + parseFloat(b.courses.reduce((a, b) => !["I", "IP", "W", "P", "S", "U", ""].includes(b.grade) ? a + parseFloat(b.creditHour) : a, 0)), 0);
 
-            var cgpa = gp / ch;
+            var cgpa = ch > 0 ? gp / ch : 0;
 
             // Add the CGPA to the table
             row.insertCell(); // empty cell
@@ -232,8 +216,7 @@ function main() {
             cell.textContent = `CGPA: ${gp.toFixed(2)} ÷ ${ch} = ${cgpa.toFixed(3)}`; // cgpa value
 
             var form = document.querySelector("body > div.openerp.openerp_webclient_container > table > tbody > tr > td.oe_application > div > div > div > div > div > div.oe_view_manager_view_form > div > div.oe_form_container > div > div > div > div");
-            form.style.width = "900px"
-            form.style.margin = "100px 100px";
+            if (form) { form.style.width = "900px"; form.style.margin = "100px 100px"; }
         }
     }
     catch (err) {
@@ -256,7 +239,9 @@ function main() {
 
         // Append the button to a specific location
         var header = document.querySelector('body > div.openerp.openerp_webclient_container > table > tbody > tr > td.oe_application > div > div > div > div > div > div.oe_view_manager_view_form > div > div.oe_form_container > div > div > div > div > table:nth-child(4) > tbody > tr:nth-child(2) > td:nth-child(1)');
-        if (header) {
+        if (header && !header.querySelector("[data-uet-print]")) {
+            printPdfButton.dataset.uetPrint = "true";
+            printImageButton.dataset.uetPrint = "true";
             header.appendChild(printPdfButton);
             header.appendChild(printImageButton);
         }
@@ -363,7 +348,7 @@ function main() {
                         if (typeof html2canvas !== "undefined") {
                             const element = document.querySelector(`#${notebookPage.id}`); // The div to capture
 
-                            html2canvas(element, { scale: 2 }).then(canvas => {
+                            html2canvas(element, { scale: 2, ignoreElements: node => node.hasAttribute("data-uet-no-export") }).then(canvas => {
                                 let image = canvas.toDataURL("image/png"); // Convert to PNG
                                 let link = document.createElement("a");
                                 link.href = image;
@@ -372,9 +357,9 @@ function main() {
 
                                 // ✅ Resolve the promise after all operations are completed
                                 resolve("Print setup completed successfully.");
-                            });
+                            }).catch(reject);
                         } else {
-                            console.error("html2canvas is not loaded. Make sure it is included in manifest.json.");
+                            reject(new Error("PNG library unavailable. Reload the extension and LMS page."));
                         }
                     }
 
@@ -426,12 +411,13 @@ function main() {
 
 }
 
-// Call the main function when the page is loaded
-window.onpopstate = function () {
-    const hashLoc = "view_type=form&model=obe.grade.book&menu_id=572"
-    const hash = window.location.hash;;
-
-    if (hash.includes(hashLoc)) {
-        main();
-    }
+// Handle initial loads and asynchronous LMS navigation without replacing LMS handlers.
+let uetRefreshTimer;
+function scheduleUetRefresh() {
+    clearTimeout(uetRefreshTimer);
+    uetRefreshTimer = setTimeout(main, 200);
 }
+window.addEventListener('popstate', scheduleUetRefresh);
+window.addEventListener('hashchange', scheduleUetRefresh);
+new MutationObserver(scheduleUetRefresh).observe(document.body, {childList: true, subtree: true});
+scheduleUetRefresh();
